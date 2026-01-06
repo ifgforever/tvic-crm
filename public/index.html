@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TV Install Chicago | CRM</title>
+  <script defer src="app.js"></script>
+  <style>
+    body{font-family:system-ui,Arial;margin:0;background:#0b1220;color:#e8eefc}
+    header{padding:16px 18px;border-bottom:1px solid #1b2a4a;display:flex;gap:12px;align-items:center}
+    .badge{background:#1b2a4a;padding:6px 10px;border-radius:999px;font-size:12px}
+    main{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px}
+    .card{background:#0f1a33;border:1px solid #1b2a4a;border-radius:14px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    h2{margin:0 0 10px 0;font-size:16px}
+    input,textarea,button,select{width:100%;padding:10px;border-radius:10px;border:1px solid #263a66;background:#0b1220;color:#e8eefc}
+    button{cursor:pointer;background:#2d6cff;border:none}
+    button.secondary{background:#223255;border:1px solid #2b3f6e}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .muted{opacity:.75;font-size:12px}
+    a{color:#8fb7ff}
+  </style>
+</head>
+<body>
+<header>
+  <div style="font-weight:800">TV INSTALL CHICAGO</div>
+  <div class="badge">CRM + Invoicing</div>
+  <div style="margin-left:auto" class="muted">Local dev</div>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Customers</h2>
+    <div class="row">
+      <input id="qCustomers" placeholder="Search customers (name/phone/email/address)..." />
+      <button class="secondary" id="btnLoadCustomers">Search</button>
+    </div>
+    <div style="height:10px"></div>
+
+    <div class="row">
+      <input id="cName" placeholder="Name" />
+      <input id="cPhone" placeholder="Phone" />
+      <input id="cEmail" placeholder="Email" />
+      <input id="cAddr" placeholder="Service Address" />
+    </div>
+    <div style="height:10px"></div>
+    <textarea id="cNotes" placeholder="Notes"></textarea>
+    <div style="height:10px"></div>
+    <button id="btnAddCustomer">Add Customer</button>
+
+    <div style="height:12px"></div>
+    <div id="customersList" class="muted">No customers loaded yet.</div>
+  </section>
+
+  <section class="card">
+    <h2>Invoices</h2>
+    <div class="row">
+      <select id="invCustomer"></select>
+      <button id="btnCreateInvoice">Create Invoice</button>
+    </div>
+    <div style="height:12px"></div>
+    <div id="invoicesList" class="muted">No invoices loaded yet.</div>
+  </section>
+</main>
+
+</body>
+</html>
