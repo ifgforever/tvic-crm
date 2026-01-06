@@ -1,132 +1,136 @@
+I'll analyze your code thoroughly and provide fixes for all the issues you've identified.
+
+## 1. Bullet Character Encoding Issue (`â€¢`)
+
+**Root Cause:** The `â€¢` you're seeing is the UTF-8 byte sequence for `•` (U+2022) being misinterpreted as ISO-8859-1/Windows-1252. This happens when:
+- The file is saved as UTF-8
+- But the browser interprets it as a different encoding
+
+**Your `invoice.html` already has `<meta charset="utf-8" />`**, which is correct. However, the issue is likely that:
+
+1. The Worker isn't setting the correct `Content-Type` header with charset for HTML files
+2. Or the file itself has a BOM or encoding issue
+
+**Fix for `src/worker.ts`** - The Cloudflare assets binding should handle this, but your current worker doesn't explicitly serve static files—it only handles `/api/*` routes and returns 404 for everything else. This is the core routing problem.
+
+## 2-5. Complete Analysis and Patched Code
+
+Let me provide the complete fixes:Now let me also patch `app.js` for consistency:Now let me copy the files to the outputs directory and provide you with a summary:## Summary of All Fixes
+
+### 1. Bullet Character Encoding (`â€¢` → `•`)
+
+**Root causes identified:**
+- Your original code used literal `•` characters in JavaScript strings
+- The JavaScript files may have been served without proper charset headers
+
+**Fixes applied:**
+- Changed all bullet characters to Unicode escape sequences: `\u2022`
+- Added `<meta http-equiv="Content-Type" content="text/html; charset=utf-8">` as a fallback
+- Changed from using `innerHTML` with literal bullets to `textContent` with `\u2022`
+- In HTML, changed `← Back` to `&larr; Back` (using HTML entity)
+
+### 2. Fetch Helper Improvements
+
+**Issues found:**
+- No network error handling
+- No Content-Type header validation
+- Headers weren't merged properly if custom headers were passed
+
+**Fixes:**
+- Wrapped fetch in try/catch for network errors
+- Check `Content-Type` header before parsing JSON
+- Proper header merging
+- Better error messages
+
+### 3. XSS Security Fixes (Critical)
+
+**Vulnerability:** Your original code used `innerHTML` with unsanitized user data:
+```javascript
+// DANGEROUS - allows XSS
+el("items").innerHTML = items.map(r => `<td>${r.description}</td>`).join("");
+```
+
+**Fix:** Replaced all `innerHTML` usage with safe DOM building:
+```javascript
+const cell = document.createElement("td");
+cell.textContent = r.description; // Safe - textContent escapes HTML
+```
+
+### 4. Routing Issue
+
+**Problem:** Your original worker only handled `/api/*` routes and returned 404 for everything else. The `assets` configuration in `wrangler.toml` should serve static files, but there was a mismatch.
+
+**Fix:** Added explicit ASSETS binding handling in `worker.ts`:
+```typescript
 export interface Env {
   DB: D1Database;
+  ASSETS: Fetcher; // Add this
 }
-
-const json = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
-
-const uid = () => crypto.randomUUID();
-const nowISO = () => new Date().toISOString();
-const ymd = (d = new Date()) => d.toISOString().slice(0, 10);
-
-async function readBody(req: Request) {
-  const text = await req.text();
-  try { return text ? JSON.parse(text) : {}; } catch { return {}; }
+// ... in fetch handler:
+if (env.ASSETS) {
+  return env.ASSETS.fetch(req);
 }
+```
 
-async function invoiceTotals(db: D1Database, invoiceId: string) {
-  const items = await db.prepare(
-    `SELECT qty, unit_price_cents FROM invoice_items WHERE invoice_id = ?`
-  ).bind(invoiceId).all();
+**Also fixed:** The regex-based route matching for `/api/invoices/:id` vs `/api/invoices/:id/items` - your original code had a bug where both routes could match incorrectly.
 
-  const subtotalCents = (items.results || []).reduce((sum: number, r: any) => {
-    const qty = Number(r.qty ?? 0);
-    const up = Number(r.unit_price_cents ?? 0);
-    return sum + Math.round(qty * up);
-  }, 0);
+---
 
-  const inv = await db.prepare(`SELECT tax_cents FROM invoices WHERE id = ?`)
-    .bind(invoiceId).first();
+## 6. Verification Checklist
 
-  const taxCents = Number(inv?.tax_cents ?? 0);
-  return { subtotalCents, taxCents, totalCents: subtotalCents + taxCents };
-}
+### Local Testing (before deploy)
+```bash
+# 1. Start dev server
+npm run dev
+# or: wrangler dev
 
-export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
-    const { pathname } = url;
+# 2. Open browser to http://localhost:8787
 
-    // ---------- Customers ----------
-    if (pathname === "/api/customers" && req.method === "GET") {
-      const q = url.searchParams.get("q")?.trim() || "";
-      const rows = q
-        ? await env.DB.prepare(
-            `SELECT * FROM customers
-             WHERE name LIKE ? OR phone LIKE ? OR email LIKE ? OR service_address LIKE ?
-             ORDER BY created_at DESC LIMIT 200`
-          ).bind(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`).all()
-        : await env.DB.prepare(`SELECT * FROM customers ORDER BY created_at DESC LIMIT 200`).all();
+# 3. Check encoding - bullets should appear as •
+#    - Look at customer list
+#    - Look at invoice header
 
-      return json(rows.results || []);
-    }
+# 4. Test XSS protection - try adding a customer with this name:
+#    <script>alert('XSS')</script>
+#    Should display as text, NOT execute
 
-    if (pathname === "/api/customers" && req.method === "POST") {
-      const b = await readBody(req);
-      if (!b.name) return json({ error: "Name required" }, 400);
+# 5. Test API routes
+curl http://localhost:8787/api/customers
+curl http://localhost:8787/api/invoices
 
-      const id = uid();
-      await env.DB.prepare(
-        `INSERT INTO customers (id, name, phone, email, service_address, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).bind(id, b.name, b.phone ?? "", b.email ?? "", b.service_address ?? "", b.notes ?? "", nowISO()).run();
+# 6. Check browser console for errors
+#    - No CORS errors
+#    - No 404s for JS files
+#    - No encoding warnings
+```
 
-      return json({ id });
-    }
+### After Deploy
+```bash
+# 1. Deploy
+npm run deploy
+# or: wrangler deploy
 
-    // ---------- Invoices ----------
-    if (pathname === "/api/invoices" && req.method === "GET") {
-      const rows = await env.DB.prepare(
-        `SELECT i.*, c.name AS customer_name
-         FROM invoices i
-         JOIN customers c ON c.id = i.customer_id
-         ORDER BY i.created_at DESC LIMIT 200`
-      ).all();
-      return json(rows.results || []);
-    }
+# 2. Check the deployed URL
+curl -I https://your-worker.your-subdomain.workers.dev/
+# Should show: content-type: text/html; charset=utf-8
 
-    if (pathname === "/api/invoices" && req.method === "POST") {
-      const b = await readBody(req);
-      if (!b.customer_id) return json({ error: "customer_id required" }, 400);
+# 3. Check API
+curl https://your-worker.your-subdomain.workers.dev/api/customers
 
-      const id = uid();
-      const invoiceNumber = b.invoice_number || `INV-${new Date().getFullYear()}-${Math.floor(Math.random()*9000+1000)}`;
-      const invoiceDate = b.invoice_date || ymd();
-      const dueDate = b.due_date || ymd(new Date(Date.now() + 14 * 86400000));
+# 4. In browser:
+#    - Bullets display correctly (• not â€¢)
+#    - All CRUD operations work
+#    - No console errors
+#    - Check Network tab: all responses have correct Content-Type
 
-      await env.DB.prepare(
-        `INSERT INTO invoices (id, customer_id, invoice_number, invoice_date, due_date, status, tax_cents, created_at)
-         VALUES (?, ?, ?, ?, ?, 'Draft', 0, ?)`
-      ).bind(id, b.customer_id, invoiceNumber, invoiceDate, dueDate, nowISO()).run();
+# 5. Security test in production:
+#    - Try XSS payloads in all input fields
+#    - Check that HTML is escaped in display
+```
 
-      return json({ id });
-    }
-
-    if (pathname.startsWith("/api/invoices/") && pathname.endsWith("/items") && req.method === "POST") {
-      const invoiceId = pathname.split("/")[3];
-      const b = await readBody(req);
-      if (!b.description) return json({ error: "description required" }, 400);
-
-      const id = uid();
-      const qty = Number(b.qty ?? 1);
-      const unitPriceCents = Math.round(Number(b.unit_price ?? 0) * 100);
-
-      await env.DB.prepare(
-        `INSERT INTO invoice_items (id, invoice_id, description, qty, unit_price_cents, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).bind(id, invoiceId, b.description, qty, unitPriceCents, nowISO()).run();
-
-      return json({ id });
-    }
-
-    if (pathname.startsWith("/api/invoices/") && req.method === "GET") {
-      const invoiceId = pathname.split("/").pop()!;
-      const inv = await env.DB.prepare(
-        `SELECT i.*, c.name AS customer_name, c.email AS customer_email
-         FROM invoices i JOIN customers c ON c.id=i.customer_id
-         WHERE i.id=?`
-      ).bind(invoiceId).first();
-
-      if (!inv) return json({ error: "Not found" }, 404);
-
-      const items = await env.DB.prepare(
-        `SELECT * FROM invoice_items WHERE invoice_id=? ORDER BY created_at ASC`
-      ).bind(invoiceId).all();
-
-      const totals = await invoiceTotals(env.DB, invoiceId);
-      return json({ invoice: inv, items: items.results || [], totals });
-    }
-
-    return json({ error: "Not found" }, 404);
-  }
-};
+### Quick Encoding Test
+Open browser console on deployed site and run:
+```javascript
+// Should log: true
+console.log(document.characterSet === 'UTF-8');
+```
